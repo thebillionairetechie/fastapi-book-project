@@ -1,8 +1,7 @@
-from typing import OrderedDict
-
-from fastapi import APIRouter, status
+from typing import List, OrderedDict
+from fastapi import APIRouter, status, HTTPException
 from fastapi.responses import JSONResponse
-
+from pydantic import BaseModel
 from api.db.schemas import Book, Genre, InMemoryDB
 
 router = APIRouter()
@@ -36,16 +35,17 @@ db.books = {
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_book(book: Book):
     db.add_book(book)
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED, content=book.model_dump()
-    )
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=book.model_dump())
 
 
-@router.get(
-    "/", response_model=OrderedDict[int, Book], status_code=status.HTTP_200_OK
-)
-async def get_books() -> OrderedDict[int, Book]:
-    return db.get_books()
+@router.get("/{book_id}", response_model=Book, status_code=status.HTTP_200_OK)
+async def get_book_by_id(book_id: int):
+    book = db.books.get(book_id)
+    if book is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND, content={"message": "Book not found"}
+        )
+    return book
 
 
 @router.put("/{book_id}", response_model=Book, status_code=status.HTTP_200_OK)
@@ -60,3 +60,23 @@ async def update_book(book_id: int, book: Book) -> Book:
 async def delete_book(book_id: int) -> None:
     db.delete_book(book_id)
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# New Feature: Bulk Delete Books
+class BulkDeleteRequest(BaseModel):
+    book_ids: List[int]
+
+
+@router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def bulk_delete_books(request: BulkDeleteRequest):
+    deleted_books = 0
+
+    for book_id in request.book_ids:
+        if book_id in db.books:
+            del db.books[book_id]
+            deleted_books += 1
+
+    if deleted_books == 0:
+        raise HTTPException(status_code=404, detail="No matching books found to delete")
+
+    return {"message": f"Successfully deleted {deleted_books} books"}
